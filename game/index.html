@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lantern Heist — Shadow of the Ember Vault</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  html, body { margin: 0; padding: 0; background: #0d0a07; }
+  body { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+  #wrap { width: 1280px; }
+  canvas { display: block; width: 1280px; height: 720px; background: #14100c; }
+  #errors, #test-out { display: none; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="game" width="1280" height="720"></canvas>
+  <div id="errors"></div>
+  <div id="test-out"></div>
+</div>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
