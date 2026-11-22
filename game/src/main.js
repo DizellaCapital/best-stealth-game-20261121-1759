@@ -3,13 +3,13 @@
 // level-clear / win. Also the ?shot= staging used for the screenshots
 // and the ?test= self-check that reports into #test-out.
 
-import { TILE, VIEW_W, VIEW_H, SCORE_RELIC, SCORE_COIN, SCORE_UNSEEN_BONUS, CATCH_DIST } from './config.js';
+import { TILE, COLS, ROWS, VIEW_W, VIEW_H, SCORE_RELIC, SCORE_COIN, SCORE_UNSEEN_BONUS, CATCH_DIST } from './config.js';
 import { LEVELS } from './levels.js';
 import { World } from './world.js';
 import { Guard } from './guard.js';
 import { Player } from './player.js';
 import { AudioBank } from './audio.js';
-import { Renderer } from './render.js';
+import { Renderer, PLAY_X, PLAY_Y, PLAY_SCALE } from './render.js';
 import { Input } from './input.js';
 
 const params = new URLSearchParams(window.location.search);
@@ -41,6 +41,7 @@ export class Game {
     this.unseen = true;
     this.lastTime = 0;
     this.shotMode = !!SHOT;
+    this.shotCallouts = null;
     this.loadLevel(0);
     if (this.shotMode) this.stageShot(SHOT);
     else this.mode = 'title';
@@ -60,16 +61,43 @@ export class Game {
   }
 
   // Stage a fixed scene for a screenshot: deterministic, no ticking.
+  // Each shot also sets shotCallouts — labelled annotations the renderer
+  // draws on top (leader line + pill), only in shot mode.
   stageShot(shot) {
     this.mode = 'playing';
     const w = this.world;
     const tile = (x, y) => w.tileCenter(x, y);
     if (shot === 'start') {
-      // Advance the patrols a little so cones sit mid-room.
-      for (let i = 0; i < 90; i++) {
-        for (const g of this.guards) g.stepPatrol(1 / 60);
-      }
-      this.player.pos = tile(w.start.x, w.start.y);
+      // Cover: the thief sneaks behind the crates at the edge of Wren's
+      // cone, Marlowe is suspicious ("?"), Ivo patrols the far hall.
+      const g0 = this.guards[0];
+      g0.pos = tile(4, 6);
+      g0.dir = 0;
+      g0.state = 'patrol';
+      const g1 = this.guards[1];
+      g1.pos = tile(13, 9);
+      g1.dir = -Math.PI / 2;
+      g1.state = 'suspicious';
+      g1.detection = 62;
+      g1.lastSeen = tile(13, 6);
+      const g2 = this.guards[2];
+      g2.pos = tile(24, 10);
+      g2.dir = Math.PI;
+      g2.state = 'patrol';
+      this.player.pos = tile(6, 8);
+      this.player.sneaking = true;
+      this.player.facing = -Math.PI / 2;
+      this.time = 37;
+      const lamp = tile(3, 5);
+      const exit = tile(w.exit.x, w.exit.y);
+      const thief = tile(6, 8);
+      const sus = tile(13, 9);
+      this.shotCallouts = [
+        { wx: thief.x, wy: thief.y, text: 'YOU: hidden where the cone stops at the crates', dx: -30, dy: -120 },
+        { wx: lamp.x, wy: lamp.y, text: 'LAMPLIGHT: seen from across the room', dx: 60, dy: -95 },
+        { wx: sus.x, wy: sus.y, text: 'WHAT WAS THAT?', dx: 30, dy: -115 },
+        { wx: exit.x, wy: exit.y, text: 'EXIT — reach unseen', dx: -270, dy: -30 },
+      ];
     } else if (shot === 'sneak') {
       // Crouched behind a crate at the edge of guard 0's cone, half-spotted.
       const g0 = this.guards[0];
@@ -81,6 +109,10 @@ export class Game {
       this.player.facing = -Math.PI / 2;
       this.maxDetection = 46;
       g0.detection = 46;
+      const thief = tile(5, 8);
+      this.shotCallouts = [
+        { wx: thief.x, wy: thief.y, text: 'SNEAKING — at the edge of the cone', dx: -20, dy: -130 },
+      ];
     } else if (shot === 'alert') {
       // Guard 0 is chasing; the thief breaks for the bushes.
       const g0 = this.guards[0];
@@ -93,6 +125,12 @@ export class Game {
       this.player.facing = Math.PI / 2;
       this.maxDetection = 100;
       this.unseen = false;
+      const guard = tile(7, 6);
+      const thief = tile(5, 10);
+      this.shotCallouts = [
+        { wx: guard.x, wy: guard.y, text: 'SPOTTED! Break line of sight!', dx: 30, dy: -105 },
+        { wx: thief.x, wy: thief.y, text: 'RUN FOR THE BUSHES', dx: 10, dy: 70 },
+      ];
     } else if (shot === 'exit') {
       // All relics in hand, vault door open, thief on the threshold.
       for (const r of w.relics) r.taken = true;
@@ -102,6 +140,10 @@ export class Game {
       this.time = 96;
       this.mode = 'clear';
       this.maxDetection = 0;
+      const exit = tile(w.exit.x, w.exit.y);
+      this.shotCallouts = [
+        { wx: exit.x, wy: exit.y, text: 'GHOST +150 — never seen', dx: -280, dy: -95 },
+      ];
     }
   }
 
@@ -161,12 +203,17 @@ export class Game {
       return;
     }
     const click = this.input.takeClick();
-    if (click && click.y > 80) {
-      if (this.player.throwCoin(click.x, click.y - 80 + 0)) this.audio.coinRing();
+    if (click) {
+      // Screen (canvas) coords -> world coords through the play transform.
+      const wx = (click.x - PLAY_X) / PLAY_SCALE;
+      const wy = (click.y - PLAY_Y) / PLAY_SCALE;
+      if (wx >= 0 && wx <= COLS * TILE && wy >= 0 && wy <= ROWS * TILE) {
+        if (this.player.throwCoin(wx, wy)) this.audio.coinRing();
+      }
     }
     if (this.input.wasPressed('KeyQ')) {
-      const mx = this.input.mouse.x || this.player.pos.x;
-      const my = (this.input.mouse.y || 0) - 80;
+      const mx = ((this.input.mouse.x || this.player.pos.x) - PLAY_X) / PLAY_SCALE;
+      const my = ((this.input.mouse.y || 0) - PLAY_Y) / PLAY_SCALE;
       if (this.player.throwCoin(mx, Math.max(0, my))) this.audio.coinRing();
     }
 
@@ -224,7 +271,9 @@ export class Game {
       time: this.time,
       animTime: this.shotMode ? 0 : this.animTime,
       maxDetection: this.maxDetection,
+      unseen: this.unseen,
       mode: this.mode,
+      shotCallouts: this.shotCallouts,
     });
   }
 
