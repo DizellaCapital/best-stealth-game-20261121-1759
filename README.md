@@ -1,4 +1,4 @@
-# LANTERN HEIST — Shadow of the Ember Vault
+# THE CLOCKMAKER'S VAULT — a lantern heist in four floors
 
 [![make.fun · best-stealth-game-20261121-1759](https://make.fun/badge/best-stealth-game-20261121-1759.svg)](https://make.fun/bounty/best-stealth-game-20261121-1759?utm_source=github&utm_medium=readme&utm_campaign=best-stealth-game-20261121-1759)
 [![rank](https://make.fun/badge/best-stealth-game-20261121-1759/DizellaCapital/best-stealth-game-20261121-1759/rank.svg)](https://make.fun/bounty/best-stealth-game-20261121-1759/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=best-stealth-game-20261121-1759)
@@ -7,16 +7,19 @@
 
 A complete 2D top-down stealth game for the [make.fun bounty](https://make.fun/bounty/best-stealth-game-20261121-1759): **Make the best stealth game**.
 
-You are a lantern-thief infiltrating a vault-museum at night. Steal all 3 ember relics on each floor and reach the exit unseen.
+You are a lantern-thief infiltrating a clockmaker's tower-vault at night. Steal all 3 ember relics on each floor and reach the exit unseen.
 
 ## The game
 
-- **3 levels, 12 guards** — The Ember Gallery, Hall of Pillars, Vault of Embers
+- **4 levels, 17 guards, 2 CCTV cameras** — The Ember Gallery, Hall of Pillars, Vault of Embers, The Clockmaker's Vault
 - **Vision cones** — guards patrol learnable routes; step into a cone and the detection meter fills
 - **Guard AI** — patrol / suspicious / alert chase / return, with a chance to break line of sight and recover
+- **CCTV cameras** — sweeping cones that tip off the nearest guard when they spot you
 - **Cover** — crates and pillars block sight, bushes hide you completely
 - **Light and shadow** — lamplight makes you easier to spot; darkness is your friend
-- **Noise** — running is loud; throw a coin (Q or click) to pull a guard away
+- **Noise** — running is loud; sound rings show it. Throw a coin (1/Q or click) to pull a guard away
+- **3 gadgets** — coin lure (1), smoke veil (2) that blinds cones for ~6 s, shadow dash (3) for a silent burst
+- **GHOST / SHADOW / DETECTED rank** — the final tally grades your whole run
 - **HUD + minimap** — objective, detection meter, alert state, timer, score, live minimap
 - **Synthesized sound** — footsteps, coin ring, pickup chime, alert sting (WebAudio, no files)
 - **Deterministic** — seeded layouts, same seed → same level

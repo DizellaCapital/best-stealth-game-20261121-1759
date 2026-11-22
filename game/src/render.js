@@ -27,6 +27,7 @@ const CARPETS = [
   { x0: 11, y0: 2, x1: 17, y1: 5 },
   { x0: 11, y0: 2, x1: 17, y1: 5 },
   { x0: 13, y0: 2, x1: 18, y1: 5 },
+  { x0: 13, y0: 2, x1: 18, y1: 5 },
 ];
 
 const BOOK_COLORS = ['#a34d3d', '#4d7aa3', '#5d8a4d', '#a3833d', '#7a5da3', '#a35d7a'];
@@ -122,8 +123,11 @@ export class Renderer {
     this.drawExit(state);
     this.drawCones(state);
     this.drawGuards(state);
+    this.drawCameras(state);
     this.drawPlayer(state);
     this.drawThrownCoins(state);
+    this.drawSmokeClouds(state);
+    this.drawRings(state);
     ctx.restore();
     // Screen-space layers: crisp labels, side panel, strips, overlays.
     this.drawAlarmBanner(state);
@@ -466,6 +470,89 @@ export class Renderer {
       ctx.stroke();
       ctx.globalAlpha = 1;
     }
+    // Round 4: CCTV cones in a distinct cold blue.
+    for (const cam of state.cameras || []) {
+      const pts = cam.conePoints();
+      ctx.fillStyle = cam.state === 'alert' ? 'rgba(255, 60, 60, 0.30)' : COLORS.camCone;
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = cam.state === 'alert' ? COLORS.danger : '#7fa8e8';
+      ctx.globalAlpha = 0.55;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // Round 4: CCTV camera fixtures (wall/ceiling mounts + lens).
+  drawCameras(state) {
+    const ctx = this.ctx;
+    for (const cam of state.cameras || []) {
+      const cx = cam.pos.x;
+      const cy = cam.pos.y;
+      ctx.fillStyle = '#2c2118';
+      ctx.beginPath();
+      ctx.arc(cx, cy, 12, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = COLORS.camBody;
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(cam.dir);
+      ctx.fillRect(-2, -7, 20, 14);
+      ctx.restore();
+      ctx.fillStyle = COLORS.camLens;
+      ctx.beginPath();
+      ctx.arc(cx + Math.cos(cam.dir) * 18, cy + Math.sin(cam.dir) * 18, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // Round 4: smoke veil clouds.
+  drawSmokeClouds(state) {
+    const ctx = this.ctx;
+    for (const c of state.player.smokeClouds) {
+      const fade = 1 - c.t / 6;
+      ctx.fillStyle = COLORS.smoke;
+      ctx.globalAlpha = Math.max(0, fade);
+      ctx.beginPath();
+      ctx.arc(c.x, c.y, 95, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = COLORS.smokeEdge;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(c.x, c.y, 95, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      // Puffs inside the cloud.
+      ctx.fillStyle = 'rgba(230, 234, 245, 0.35)';
+      for (const [ox, oy, r] of [[-30, -12, 22], [24, 8, 26], [0, 26, 20], [-8, -30, 18]]) {
+        ctx.beginPath();
+        ctx.arc(c.x + ox, c.y + oy, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
+  // Round 4: expanding sound rings at every noise event.
+  drawRings(state) {
+    const ctx = this.ctx;
+    for (const ring of state.rings || []) {
+      const p = ring.t / ring.life;
+      const rr = ring.r * (0.25 + 0.75 * p);
+      ctx.strokeStyle = `rgba(255, 217, 77, ${Math.max(0, 0.85 * (1 - p))})`;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(ring.x, ring.y, rr, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.strokeStyle = `rgba(255, 217, 77, ${Math.max(0, 0.4 * (1 - p))})`;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(ring.x, ring.y, rr * 0.6, 0, Math.PI * 2);
+      ctx.stroke();
+    }
   }
 
   drawGuards(state) {
@@ -591,6 +678,18 @@ export class Renderer {
     const p = state.player;
     const px = this.sx(p.pos.x);
     const py = this.sy(p.pos.y);
+    // Round 4: CAM labels over each camera.
+    for (const cam of state.cameras || []) {
+      const cx = this.sx(cam.pos.x);
+      const cy = this.sy(cam.pos.y);
+      pill(ctx, cx, cy - 26, 'CAM', 'bold 10px system-ui, sans-serif', '#dfeeff', cam.state === 'alert' ? 'rgba(160, 20, 12, 0.9)' : 'rgba(20, 50, 90, 0.9)', '#7fa8e8');
+      if (cam.detection > 4) {
+        ctx.fillStyle = 'rgba(0,0,0,0.55)';
+        ctx.fillRect(cx - 16, cy + 16, 32, 5);
+        ctx.fillStyle = cam.detection >= 55 ? COLORS.danger : COLORS.warn;
+        ctx.fillRect(cx - 16, cy + 16, 32 * (cam.detection / 100), 5);
+      }
+    }
     const inBush = state.world.inBush(p.pos.x, p.pos.y);
     const lit = state.world.litAt(p.pos.x, p.pos.y);
     const hidden = inBush || (p.sneaking && !lit);
@@ -620,7 +719,7 @@ export class Renderer {
     ctx.textAlign = 'left';
     ctx.fillStyle = COLORS.hudText;
     ctx.font = 'bold 22px system-ui, sans-serif';
-    ctx.fillText('LANTERN HEIST', 16, 24);
+    ctx.fillText("THE CLOCKMAKER'S VAULT", 16, 24);
     ctx.fillStyle = COLORS.hudDim;
     ctx.font = '13px system-ui, sans-serif';
     ctx.fillText(state.levelDef.name, 16, 50);
@@ -629,7 +728,7 @@ export class Renderer {
     ctx.fillText(`Relics  ${state.player.relics}/3`, 330, 24);
     ctx.fillStyle = COLORS.hudDim;
     ctx.font = '13px system-ui, sans-serif';
-    ctx.fillText(`Coins  ${state.player.coins}  •  Score  ${state.score}`, 330, 50);
+    ctx.fillText(`Coins  ${state.player.coins}  •  Smoke  ${state.player.smokes}  •  Dash  ${state.player.dashes}  •  Score  ${state.score}`, 330, 50);
     const det = state.maxDetection;
     const detLabel = det >= 100 ? 'SPOTTED!' : det >= 55 ? 'SUSPICIOUS' : det > 4 ? 'GLIMPSED' : 'UNSEEN';
     const detColor = det >= 100 ? COLORS.danger : det >= 55 ? COLORS.warn : det > 4 ? '#e8d27a' : COLORS.ok;
@@ -650,7 +749,7 @@ export class Renderer {
     ctx.fillText(`Time  ${mm}:${ss}`, 900, 24);
     ctx.fillStyle = COLORS.hudDim;
     ctx.font = '13px system-ui, sans-serif';
-    ctx.fillText(`Level  ${state.levelIndex + 1}/3`, 900, 50);
+    ctx.fillText(`Level  ${state.levelIndex + 1}/${state.levelsTotal || 4}`, 900, 50);
     ctx.textAlign = 'right';
     ctx.fillStyle = state.unseen === false ? COLORS.hudDim : '#ffd27a';
     ctx.font = 'bold 13px system-ui, sans-serif';
@@ -759,12 +858,29 @@ export class Renderer {
     }
     y += 6;
 
+    heading('GADGETS');
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.textBaseline = 'top';
+    const gadgetLines = [
+      [`Coin ×${state.player.coins}  — Q / click, lures guards`, state.player.coins > 0],
+      [`Smoke ×${state.player.smokes}  — key 2, hides you 6s`, state.player.smokes > 0],
+      [`Dash ×${state.player.dashes}  — key 3, silent burst`, state.player.dashes > 0],
+    ];
+    for (const [text, left] of gadgetLines) {
+      ctx.fillStyle = left ? COLORS.hudText : COLORS.hudDim;
+      ctx.fillText(text, px + 12, y);
+      y += 18;
+    }
+    y += 6;
+
     heading('LEGEND');
     const legend = [
       ['#ffd65a', 'Guard + vision cone'],
       ['#ffb347', 'Suspicious — heard you'],
       ['#ff5a4d', 'Alert — chasing you'],
+      ['#7fa8e8', 'CCTV camera — tips off guards'],
       ['#ffd27a', 'Lamplight — seen faster'],
+      ['#c6cad6', 'Smoke veil — cones blind'],
       ['#7a5230', 'Crate — blocks sight'],
       ['#2e5230', 'Bush — hides you'],
       ['#ff7a2a', 'Ember relic — steal it'],
@@ -825,6 +941,10 @@ export class Renderer {
       ctx.arc(mx + guard.pos.x * sx, my + guard.pos.y * sy, 3.5, 0, Math.PI * 2);
       ctx.fill();
     }
+    for (const cam of state.cameras || []) {
+      ctx.fillStyle = '#9fd0ff';
+      ctx.fillRect(mx + cam.pos.x * sx - 2.5, my + cam.pos.y * sy - 2.5, 5, 5);
+    }
     ctx.fillStyle = '#ffffff';
     ctx.beginPath();
     ctx.arc(mx + state.player.pos.x * sx, my + state.player.pos.y * sy, 3.5, 0, Math.PI * 2);
@@ -847,7 +967,7 @@ export class Renderer {
     ctx.font = '12px system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('WASD move  •  Shift sneak  •  Space run  •  Q / click: throw coin  •  P pause  •  R restart', PLAY_X + PLAY_W / 2, STRIP_Y + (VIEW_H - STRIP_Y) / 2);
+    ctx.fillText('WASD move  •  Shift sneak  •  Space run  •  1/Q coin  •  2 smoke  •  3 dash  •  P pause  •  R restart', PLAY_X + PLAY_W / 2, STRIP_Y + (VIEW_H - STRIP_Y) / 2);
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
   }
@@ -865,20 +985,20 @@ export class Renderer {
     if (state.mode === 'title') {
       overlay('rgba(8, 6, 4, 0.72)');
       ctx.fillStyle = '#ffd27a';
-      ctx.font = 'bold 54px system-ui, sans-serif';
-      ctx.fillText('LANTERN HEIST', cx, PLAY_Y + 130);
+      ctx.font = 'bold 46px system-ui, sans-serif';
+      ctx.fillText("THE CLOCKMAKER'S VAULT", cx, PLAY_Y + 130);
       ctx.fillStyle = COLORS.hudText;
       ctx.font = '20px system-ui, sans-serif';
-      ctx.fillText('Shadow of the Ember Vault — steal 3 ember relics and reach the exit unseen', cx, PLAY_Y + 175);
+      ctx.fillText('A lantern heist in four floors — steal 3 ember relics per floor, reach the exit unseen', cx, PLAY_Y + 175);
       ctx.fillStyle = COLORS.hudDim;
       ctx.font = '16px system-ui, sans-serif';
-      ctx.fillText('3 levels  •  12 guards  •  vision cones  •  cover & bushes  •  coin distractions  •  minimap', cx, PLAY_Y + 210);
+      ctx.fillText('4 levels  •  17 guards  •  2 CCTV cameras  •  vision cones  •  smoke veil  •  shadow dash  •  minimap', cx, PLAY_Y + 210);
       ctx.fillStyle = '#ffffff';
       ctx.font = 'bold 22px system-ui, sans-serif';
       ctx.fillText('Press ENTER to begin', cx, PLAY_Y + 270);
       ctx.fillStyle = COLORS.hudDim;
       ctx.font = '14px system-ui, sans-serif';
-      ctx.fillText('WASD / arrows move — Shift sneak — Space run — Q or click throws a coin — P pause', cx, PLAY_Y + 305);
+      ctx.fillText('WASD / arrows move — Shift sneak — Space run — 1/Q coin, 2 smoke, 3 dash — P pause', cx, PLAY_Y + 305);
       ctx.textAlign = 'left';
     } else if (state.mode === 'caught') {
       overlay('rgba(60, 8, 4, 0.66)');
@@ -900,18 +1020,24 @@ export class Renderer {
       ctx.font = '20px system-ui, sans-serif';
       ctx.fillText(`All 3 relics stolen  •  Score ${state.score}  •  Time ${Math.floor(state.time / 60)}:${Math.floor(state.time % 60).toString().padStart(2, '0')}`, cx, PLAY_Y + 220);
       ctx.font = 'bold 20px system-ui, sans-serif';
-      ctx.fillText(state.levelIndex + 1 < 3 ? 'Press N for the next level' : 'Press ENTER for the final tally', cx, PLAY_Y + 270);
+      ctx.fillText(state.levelIndex + 1 < (state.levelsTotal || 4) ? 'Press N for the next level' : 'Press ENTER for the final tally', cx, PLAY_Y + 270);
       ctx.textAlign = 'left';
     } else if (state.mode === 'win') {
       overlay('rgba(8, 6, 4, 0.78)');
+      const rank = state.winRank || 'GHOST';
+      const rankColor = rank === 'GHOST' ? '#ffd27a' : rank === 'SHADOW' ? '#9fb6d8' : COLORS.danger;
       ctx.fillStyle = '#ffd27a';
       ctx.font = 'bold 52px system-ui, sans-serif';
-      ctx.fillText('THE VAULT IS YOURS', cx, PLAY_Y + 170);
+      ctx.fillText('THE VAULT IS YOURS', cx, PLAY_Y + 130);
+      ctx.fillStyle = rankColor;
+      ctx.font = 'bold 44px system-ui, sans-serif';
+      ctx.fillText(`${rank} RANK`, cx, PLAY_Y + 190);
       ctx.fillStyle = COLORS.hudText;
       ctx.font = '20px system-ui, sans-serif';
-      ctx.fillText(`9 ember relics stolen across 3 levels  •  Final score ${state.score}`, cx, PLAY_Y + 220);
+      const total = (state.totalTime || 0) + state.time;
+      ctx.fillText(`${(state.levelsTotal || 4) * 3} ember relics stolen across ${state.levelsTotal || 4} levels  •  Final score ${state.score}  •  Time ${Math.floor(total / 60)}:${Math.floor(total % 60).toString().padStart(2, '0')}`, cx, PLAY_Y + 235);
       ctx.font = 'bold 20px system-ui, sans-serif';
-      ctx.fillText('Press R to play again', cx, PLAY_Y + 270);
+      ctx.fillText('Press R to play again', cx, PLAY_Y + 285);
       ctx.textAlign = 'left';
     } else if (state.mode === 'paused') {
       overlay('rgba(8, 6, 4, 0.6)');

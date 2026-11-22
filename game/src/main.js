@@ -6,7 +6,7 @@
 import { TILE, COLS, ROWS, VIEW_W, VIEW_H, SCORE_RELIC, SCORE_COIN, SCORE_UNSEEN_BONUS, CATCH_DIST } from './config.js';
 import { LEVELS } from './levels.js';
 import { World } from './world.js';
-import { Guard } from './guard.js';
+import { Guard, Camera } from './guard.js';
 import { Player } from './player.js';
 import { AudioBank } from './audio.js';
 import { Renderer, PLAY_X, PLAY_Y, PLAY_SCALE } from './render.js';
@@ -36,9 +36,14 @@ export class Game {
     this.levelIndex = 0;
     this.score = 0;
     this.time = 0;
+    this.totalTime = 0;
     this.animTime = 0;
     this.maxDetection = 0;
     this.unseen = true;
+    this.runUnseen = true;
+    this.anyCaught = false;
+    this.rings = [];
+    this.cameras = [];
     this.lastTime = 0;
     this.shotMode = !!SHOT;
     this.shotCallouts = null;
@@ -55,9 +60,18 @@ export class Game {
     this.guards = this.levelDef.patrols.map(
       (p) => new Guard(p, this.world, this.levelDef.guardSpeed),
     );
+    this.cameras = (this.levelDef.cameras || []).map((c) => new Camera(c, this.world));
+    this.rings = [];
     this.time = 0;
     this.maxDetection = 0;
     this.unseen = true;
+  }
+
+  // Final stealth rank for the win screen, from the whole run.
+  winRank() {
+    if (this.anyCaught) return 'DETECTED';
+    if (this.runUnseen) return 'GHOST';
+    return 'SHADOW';
   }
 
   // Stage a fixed scene for a screenshot: deterministic, no ticking.
@@ -87,6 +101,9 @@ export class Game {
       this.player.pos = tile(6, 8);
       this.player.sneaking = true;
       this.player.facing = -Math.PI / 2;
+      // Round 4: a smoke veil + a fresh sound ring on the cover shot.
+      this.player.useSmoke();
+      this.rings.push({ x: tile(6, 8).x, y: tile(6, 8).y, r: 175, t: 0.35, life: 0.9 });
       this.time = 37;
       const lamp = tile(3, 5);
       const exit = tile(w.exit.x, w.exit.y);
@@ -114,40 +131,59 @@ export class Game {
         { wx: thief.x, wy: thief.y, text: 'SNEAKING — at the edge of the cone', dx: -20, dy: -130 },
       ];
     } else if (shot === 'alert') {
-      // Guard 0 is chasing; the thief breaks for the bushes.
+      // Round 4 gadget shot: a coin lures Marlowe out of his patrol while
+      // a smoke veil hides the thief — sound rings show the noise.
       const g0 = this.guards[0];
-      g0.state = 'alert';
-      g0.detection = 100;
-      g0.dir = Math.PI / 4;
-      g0.pos = tile(7, 6);
-      g0.lastSeen = tile(6, 9);
-      this.player.pos = tile(5, 10);
-      this.player.facing = Math.PI / 2;
-      this.maxDetection = 100;
-      this.unseen = false;
-      const guard = tile(7, 6);
-      const thief = tile(5, 10);
+      g0.state = 'suspicious';
+      g0.detection = 62;
+      g0.dir = Math.PI / 2;
+      g0.pos = tile(4, 6);
+      g0.investigateAt = tile(10, 10);
+      const g1 = this.guards[1];
+      g1.pos = tile(13, 9);
+      g1.dir = -Math.PI / 2;
+      g1.state = 'suspicious';
+      g1.detection = 48;
+      this.player.pos = tile(6, 8);
+      this.player.sneaking = true;
+      this.player.facing = -Math.PI / 2;
+      this.player.useSmoke();
+      this.player.throwCoin(tile(10, 10).x, tile(10, 10).y);
+      const landed = this.player.thrownCoins[0];
+      landed.t = 1;
+      landed.landed = true;
+      landed.x = landed.tx;
+      landed.y = landed.ty;
+      this.rings.push({ x: landed.x, y: landed.y, r: 175, t: 0.4, life: 0.9 });
+      this.maxDetection = 62;
+      const coin = tile(10, 10);
+      const thief = tile(6, 8);
       this.shotCallouts = [
-        { wx: guard.x, wy: guard.y, text: 'SPOTTED! Break line of sight!', dx: 30, dy: -105 },
-        { wx: thief.x, wy: thief.y, text: 'RUN FOR THE BUSHES', dx: 10, dy: 70 },
+        { wx: coin.x, wy: coin.y, text: 'COIN LURE — guards come to look', dx: 40, dy: -115 },
+        { wx: thief.x, wy: thief.y, text: 'SMOKE VEIL — cones cannot see you', dx: -40, dy: -130 },
       ];
     } else if (shot === 'exit') {
-      // All relics in hand, vault door open, thief on the threshold.
+      // Round 4 victory shot: the full win screen with the GHOST rank.
       for (const r of w.relics) r.taken = true;
       this.player.relics = 3;
       this.player.pos = tile(w.exit.x, w.exit.y);
       this.score = 3 * SCORE_RELIC + SCORE_UNSEEN_BONUS;
       this.time = 96;
-      this.mode = 'clear';
+      this.totalTime = 316;
+      this.mode = 'win';
       this.maxDetection = 0;
+      this.runUnseen = true;
+      this.anyCaught = false;
       const exit = tile(w.exit.x, w.exit.y);
       this.shotCallouts = [
-        { wx: exit.x, wy: exit.y, text: 'GHOST +150 — never seen', dx: -280, dy: -95 },
+        { wx: exit.x, wy: exit.y, text: 'GHOST RANK — never seen', dx: -280, dy: -95 },
       ];
     }
   }
 
   onNoise(x, y, radius) {
+    this.rings.push({ x, y, r: radius, t: 0, life: 0.9 });
+    if (this.rings.length > 14) this.rings.shift();
     for (const g of this.guards) g.hearNoise(x, y, radius);
   }
 
@@ -173,9 +209,11 @@ export class Game {
     }
     if (this.mode === 'clear') {
       if (this.input.wasPressed('KeyN') && this.levelIndex + 1 < LEVELS.length) {
+        this.totalTime += this.time;
         this.loadLevel(this.levelIndex + 1);
         this.mode = 'playing';
       } else if (this.input.wasPressed('Enter') && this.levelIndex + 1 >= LEVELS.length) {
+        this.totalTime += this.time;
         this.mode = 'win';
       } else if (this.input.wasPressed('KeyR')) {
         this.loadLevel(this.levelIndex);
@@ -186,6 +224,9 @@ export class Game {
     if (this.mode === 'win') {
       if (this.input.wasPressed('KeyR')) {
         this.score = 0;
+        this.totalTime = 0;
+        this.runUnseen = true;
+        this.anyCaught = false;
         this.loadLevel(0);
         this.mode = 'playing';
       }
@@ -216,6 +257,18 @@ export class Game {
       const my = ((this.input.mouse.y || 0) - PLAY_Y) / PLAY_SCALE;
       if (this.player.throwCoin(mx, Math.max(0, my))) this.audio.coinRing();
     }
+    // Round 4 gadgets: 1 coin, 2 smoke veil, 3 shadow dash.
+    if (this.input.wasPressed('Digit1')) {
+      const mx = ((this.input.mouse.x || this.player.pos.x) - PLAY_X) / PLAY_SCALE;
+      const my = ((this.input.mouse.y || 0) - PLAY_Y) / PLAY_SCALE;
+      if (this.player.throwCoin(mx, Math.max(0, my))) this.audio.coinRing();
+    }
+    if (this.input.wasPressed('Digit2')) {
+      if (this.player.useSmoke()) this.audio.coinRing();
+    }
+    if (this.input.wasPressed('Digit3')) {
+      this.player.useDash();
+    }
 
     const prevStep = Math.floor(this.player.stepPhase);
     this.player.update(dt, this.input, (x, y, r) => this.onNoise(x, y, r));
@@ -244,12 +297,42 @@ export class Game {
       if (g.state === 'suspicious' && prevState === 'patrol') this.audio.suspiciousBlip();
       if (g.state === 'alert' && Math.hypot(g.pos.x - this.player.pos.x, g.pos.y - this.player.pos.y) < CATCH_DIST) {
         this.mode = 'caught';
+        this.anyCaught = true;
         this.audio.caught();
         return;
       }
     }
+    // Round 4 cameras: sweep, and tip off the nearest guard when spotted.
+    for (const cam of this.cameras) {
+      const wasSpotted = cam.spotted;
+      cam.update(dt, this.player);
+      maxDet = Math.max(maxDet, cam.detection);
+      if (cam.spotted && !wasSpotted) {
+        let nearest = null;
+        let bestD = Infinity;
+        for (const g of this.guards) {
+          const d = Math.hypot(g.pos.x - this.player.pos.x, g.pos.y - this.player.pos.y);
+          if (d < bestD) {
+            bestD = d;
+            nearest = g;
+          }
+        }
+        if (nearest && nearest.state === 'patrol') {
+          nearest.state = 'suspicious';
+          nearest.investigateAt = { x: this.player.pos.x, y: this.player.pos.y };
+          nearest.stateTimer = 0;
+        }
+        this.audio.suspiciousBlip();
+      }
+    }
     this.maxDetection = maxDet;
-    if (maxDet >= 55) this.unseen = false;
+    if (maxDet >= 55) {
+      this.unseen = false;
+      this.runUnseen = false;
+    }
+    // Sound rings expand and fade.
+    for (const ring of this.rings) ring.t += dt;
+    this.rings = this.rings.filter((ring) => ring.t < ring.life);
 
     if (this.world.relicsLeft() === 0 && this.player.atExit()) {
       this.score += Math.max(0, 300 - Math.floor(this.time)) * 2;
@@ -265,10 +348,15 @@ export class Game {
       world: this.world,
       player: this.player,
       guards: this.guards,
+      cameras: this.cameras,
+      rings: this.rings,
       levelDef: this.levelDef,
       levelIndex: this.levelIndex,
+      levelsTotal: LEVELS.length,
       score: this.score,
       time: this.time,
+      totalTime: this.totalTime,
+      winRank: this.winRank(),
       animTime: this.shotMode ? 0 : this.animTime,
       maxDetection: this.maxDetection,
       unseen: this.unseen,
@@ -304,11 +392,23 @@ function runSelfTest(game) {
   };
   try {
     check('boots-title', game.mode === 'title', game.mode);
-    check('levels-3', LEVELS.length === 3, String(LEVELS.length));
+    check('levels-4', LEVELS.length === 4, String(LEVELS.length));
     check('guards-level1', game.guards.length === 3, String(game.guards.length));
     check('relics-level1', game.world.relics.length === 3, String(game.world.relics.length));
     check('exit-present', !!game.world.exit, '');
     check('lamps-present', game.world.lamps.length > 0, String(game.world.lamps.length));
+    // Round 4: gadgets start stocked, smoke hides, dash fires.
+    check('gadgets-stocked', game.player.smokes === 4 && game.player.dashes === 3, `smoke ${game.player.smokes} dash ${game.player.dashes}`);
+    const smoked = game.player.useSmoke();
+    check('smoke-use', smoked && game.player.inSmoke(game.player.pos.x, game.player.pos.y), '');
+    const dashed = game.player.useDash();
+    check('dash-use', dashed && game.player.dashTimer > 0, '');
+    // Round 4: level 4 has 5 guards and 2 cameras.
+    game.loadLevel(3);
+    check('level4-guards', game.guards.length === 5, String(game.guards.length));
+    check('level4-cameras', game.cameras.length === 2, String(game.cameras.length));
+    check('level4-relics', game.world.relics.length === 3, String(game.world.relics.length));
+    game.loadLevel(0);
     // Walk right 1s from the start: the thief must move and stay out of walls.
     game.mode = 'playing';
     const startX = game.player.pos.x;

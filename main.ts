@@ -47,4 +47,4 @@ copyTree(join(here, 'screenshots'), join(outDir, 'screenshots'));
 
 const dossier = buildDossier(outDir, caps);
 writeFileSync(join(outDir, 'dossier.json'), dossier);
-console.log(`LANTERN HEIST: wrote ${outDir} (dossier ${dossier.length} bytes)`);
+console.log(`CLOCKMAKER'S VAULT: wrote ${outDir} (dossier ${dossier.length} bytes)`);

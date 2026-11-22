@@ -14,6 +14,9 @@ import {
   CONE_HALF,
   CONE_HALF_CLOSE,
   CONE_CLOSE_DIST,
+  CAM_RANGE,
+  CAM_HALF,
+  CAM_DETECT_BASE,
   DETECT_BASE,
   DETECT_DECAY,
   SUSPICIOUS_AT,
@@ -57,6 +60,9 @@ export class Guard {
     const dist = Math.hypot(dx, dy);
     if (dist > CONE_RANGE) return { seen: false, rate: 0 };
     if (this.world.inBush(player.pos.x, player.pos.y)) return { seen: false, rate: 0 };
+    // Round 4: smoke veil hides you; a shadow dash slips through cones.
+    if (player.inSmoke && player.inSmoke(player.pos.x, player.pos.y)) return { seen: false, rate: 0 };
+    if (player.dashTimer > 0) return { seen: false, rate: 0 };
     const half = dist < CONE_CLOSE_DIST ? CONE_HALF_CLOSE : CONE_HALF;
     if (Math.abs(angleDiff(Math.atan2(dy, dx), this.dir)) > half) return { seen: false, rate: 0 };
     if (!this.world.hasLineOfSight(this.pos.x, this.pos.y, player.pos.x, player.pos.y)) {
@@ -189,6 +195,64 @@ export class Guard {
       pts.push({
         x: this.pos.x + Math.cos(a) * CONE_RANGE,
         y: this.pos.y + Math.sin(a) * CONE_RANGE,
+      });
+    }
+    return pts;
+  }
+}
+
+// Round 4 — CCTV camera: a wall/ceiling mount that sweeps a vision cone.
+// It never moves, but when its cone fills it tips off the nearest guard.
+export class Camera {
+  constructor(def, world) {
+    this.world = world;
+    const c = world.tileCenter(def.x, def.y);
+    this.pos = { x: c.x, y: c.y };
+    this.base = def.base || 0;
+    this.sweep = def.sweep || 0.9;
+    this.speed = def.speed || 0.5;
+    this.phase = 0;
+    this.dir = this.base;
+    this.detection = 0;
+    this.state = 'patrol';
+    this.spotted = false;
+  }
+
+  seesPlayer(player) {
+    const dx = player.pos.x - this.pos.x;
+    const dy = player.pos.y - this.pos.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist > CAM_RANGE) return false;
+    if (this.world.inBush(player.pos.x, player.pos.y)) return false;
+    if (player.inSmoke && player.inSmoke(player.pos.x, player.pos.y)) return false;
+    if (player.dashTimer > 0) return false;
+    if (Math.abs(angleDiff(Math.atan2(dy, dx), this.dir)) > CAM_HALF) return false;
+    return this.world.hasLineOfSight(this.pos.x, this.pos.y, player.pos.x, player.pos.y);
+  }
+
+  update(dt, player) {
+    this.phase += dt * this.speed;
+    this.dir = this.base + Math.sin(this.phase) * this.sweep;
+    if (this.seesPlayer(player)) {
+      this.detection = Math.min(ALERT_AT, this.detection + CAM_DETECT_BASE * dt);
+      this.spotted = this.detection >= ALERT_AT;
+      if (this.detection >= SUSPICIOUS_AT) this.state = this.spotted ? 'alert' : 'suspicious';
+    } else {
+      this.detection = Math.max(0, this.detection - DETECT_DECAY * dt);
+      if (this.detection < SUSPICIOUS_AT) this.state = 'patrol';
+      this.spotted = false;
+    }
+    return this.spotted;
+  }
+
+  conePoints() {
+    const pts = [{ x: this.pos.x, y: this.pos.y }];
+    const steps = 12;
+    for (let i = 0; i <= steps; i++) {
+      const a = this.dir - CAM_HALF + (2 * CAM_HALF * i) / steps;
+      pts.push({
+        x: this.pos.x + Math.cos(a) * CAM_RANGE,
+        y: this.pos.y + Math.sin(a) * CAM_RANGE,
       });
     }
     return pts;

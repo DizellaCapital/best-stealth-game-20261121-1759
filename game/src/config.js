@@ -42,6 +42,19 @@ export const PICKUP_DIST = 26;
 export const LAMP_RADIUS = 105;
 export const COIN_COUNT = 5;
 
+// Round 4 gadgets: smoke veil + shadow dash.
+export const SMOKE_COUNT = 4;
+export const DASH_COUNT = 3;
+export const SMOKE_RADIUS = 95;
+export const SMOKE_DURATION = 6;
+export const DASH_DURATION = 0.6;
+export const DASH_SPEED = 330;
+
+// Round 4 CCTV cameras (levels 3-4).
+export const CAM_RANGE = 190;
+export const CAM_HALF = 0.5;
+export const CAM_DETECT_BASE = 70;
+
 export const SCORE_RELIC = 100;
 export const SCORE_COIN = 15;
 export const SCORE_UNSEEN_BONUS = 150;
@@ -74,6 +87,11 @@ export const COLORS = {
   playerBody: '#1f9d8a',
   playerHood: '#157a6c',
   lanternGlow: 'rgba(255, 210, 120, 0.16)',
+  smoke: 'rgba(198, 202, 214, 0.30)',
+  smokeEdge: 'rgba(220, 224, 235, 0.45)',
+  camCone: 'rgba(120, 180, 255, 0.22)',
+  camBody: '#4a6a9c',
+  camLens: '#9fd0ff',
   hudBg: '#14100c',
   hudText: '#e8dcc4',
   hudDim: '#9a8c72',

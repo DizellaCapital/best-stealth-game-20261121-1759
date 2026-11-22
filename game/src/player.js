@@ -13,6 +13,12 @@ import {
   NOISE_STEP_TIME,
   PICKUP_DIST,
   COIN_COUNT,
+  SMOKE_COUNT,
+  DASH_COUNT,
+  SMOKE_RADIUS,
+  SMOKE_DURATION,
+  DASH_DURATION,
+  DASH_SPEED,
 } from './config.js';
 
 export class Player {
@@ -25,6 +31,11 @@ export class Player {
     this.running = false;
     this.moving = false;
     this.coins = COIN_COUNT;
+    this.smokes = SMOKE_COUNT;
+    this.dashes = DASH_COUNT;
+    this.smokeClouds = [];
+    this.dashTimer = 0;
+    this.dashDir = { x: 0, y: -1 };
     this.relics = 0;
     this.noiseTimer = 0;
     this.stepPhase = 0;
@@ -40,8 +51,36 @@ export class Player {
     this.running = false;
     this.moving = false;
     this.coins = COIN_COUNT;
+    this.smokes = SMOKE_COUNT;
+    this.dashes = DASH_COUNT;
+    this.smokeClouds = [];
+    this.dashTimer = 0;
     this.relics = 0;
     this.thrownCoins = [];
+  }
+
+  // Smoke veil: a cloud at your feet that hides you from cones ~6 s.
+  useSmoke() {
+    if (this.smokes <= 0) return false;
+    this.smokeClouds.push({ x: this.pos.x, y: this.pos.y, t: 0 });
+    this.smokes--;
+    return true;
+  }
+
+  // Shadow dash: a short silent speed burst, briefly unseen in cones.
+  useDash() {
+    if (this.dashes <= 0 || this.dashTimer > 0) return false;
+    this.dashes--;
+    this.dashTimer = DASH_DURATION;
+    this.dashDir = { x: Math.cos(this.facing), y: Math.sin(this.facing) };
+    return true;
+  }
+
+  inSmoke(x, y) {
+    for (const c of this.smokeClouds) {
+      if (Math.hypot(x - c.x, y - c.y) < SMOKE_RADIUS) return true;
+    }
+    return false;
   }
 
   update(dt, input, onNoise) {
@@ -55,7 +94,14 @@ export class Player {
     this.running = !this.sneaking && (input.isDown('Space') || false);
     const len = Math.hypot(dx, dy);
     this.moving = len > 0;
-    if (this.moving) {
+    if (this.dashTimer > 0) {
+      this.dashTimer -= dt;
+      // Silent burst along the dash direction, no footsteps, no noise.
+      this.pos = this.world.moveCircle(this.pos, this.dashDir.x * DASH_SPEED * dt, this.dashDir.y * DASH_SPEED * dt, PLAYER_RADIUS);
+      this.facing = Math.atan2(this.dashDir.y, this.dashDir.x);
+      this.moving = true;
+      this.stepPhase += dt * 11;
+    } else if (this.moving) {
       const speed = this.sneaking
         ? PLAYER_SPEED_SNEAK
         : this.running
@@ -74,6 +120,9 @@ export class Player {
         }
       }
     }
+    // Smoke clouds fade out after SMOKE_DURATION.
+    for (const c of this.smokeClouds) c.t += dt;
+    this.smokeClouds = this.smokeClouds.filter((c) => c.t < SMOKE_DURATION);
     // Thrown coins land and ring: guards in range come to look.
     for (const coin of this.thrownCoins) {
       if (!coin.landed) {
